@@ -21,6 +21,7 @@
 void* send_msg(void* arg);
 void* recv_msg(void* arg);
 void error_handling(const char* message);
+int process_command(char* msg);
 
 char msg[BUFSIZE];
 char nickname[NICKNAME_SIZE];
@@ -81,31 +82,11 @@ void* send_msg(void* arg) {
             close(sock);
             exit(0);
         }
-        // =========================
-        // color 명령 처리
-        // =========================
-        if(strcmp(msg, "/color r\n")==0){
-            strcpy(color_code, "\033[31m");
-            printf(">> 글자색을 빨간색으로 변경했습니다.\n");
-            continue;
-        }
-
-        if(strcmp(msg, "/color g\n")==0){
-            strcpy(color_code, "\033[32m");
-            printf(">> 글자색을 초록색으로 변경했습니다.\n");
-            continue;
-        }
-
-        if(strcmp(msg, "/color b\n")==0){
-            strcpy(color_code, "\033[34m");
-            printf(">> 글자색을 파란색으로 변경했습니다.\n");
-            continue;
-        }
-
-        if(strcmp(msg, "/color -\n")==0){
-            strcpy(color_code, "\033[0m");
-            printf(">> 기본색으로 변경했습니다.\n");
-            continue;
+        // /로 시작하는 명령어처리
+        //구현 기능1: /color r, /color g, /color b, /color --> 색상 변경 명령어 처리
+        if(msg[0] == '/'){
+            process_command(msg);
+            continue; // 명령어 처리 후 메시지 전송을 건너뜀
         }
 
         if(msg[0] != '/'){
@@ -147,4 +128,36 @@ void error_handling(const char* message) {
     fputs(message, stderr);
     fputc('\n', stderr);
     exit(1);
+}
+
+int process_command(char* msg) {
+    // 명령어 처리 로직 구현
+    // 예: /color r, /color g, /color b, /color - 등
+    if(strcmp(msg, "/color r\n") == 0) {
+        strcpy(color_code, "\033[31m");
+        printf(">> 글자색을 빨간색으로 변경했습니다.\n");
+    } else if(strcmp(msg, "/color g\n") == 0) {
+        strcpy(color_code, "\033[32m");
+        printf(">> 글자색을 초록색으로 변경했습니다.\n");
+    } else if(strcmp(msg, "/color b\n") == 0) {
+        strcpy(color_code, "\033[34m");
+        printf(">> 글자색을 파란색으로 변경했습니다.\n");
+    } else if(strcmp(msg, "/color -\n") == 0) {
+        strcpy(color_code, "\033[0m");
+        printf(">> 기본색으로 변경했습니다.\n");
+    } else if(strncmp(msg, "/color ", 7) == 0) {
+        printf(">> 알 수 없는 색상입니다. 사용 가능한 색상: r, g, b, -\n");
+    } else if(strcmp(msg, "/help\n") == 0) {
+        printf(">> 사용 가능한 명령어:\n");
+        printf("   /color r - 글자색을 빨간색으로 변경\n");
+        printf("   /color g - 글자색을 초록색으로 변경\n");
+        printf("   /color b - 글자색을 파란색으로 변경\n");
+        printf("   /color - - 글자색을 기본색으로 변경\n");
+        printf("   /help - 명령어 도움말 출력\n");
+    }
+    else {
+        printf(">> 알 수 없는 명령어입니다.\n");
+        printf("명령어 도움말은 /help 를 입력하세요.\n");
+    }
+    return 0; // 명령어 처리 후 성공 여부 반환
 }
