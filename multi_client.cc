@@ -17,11 +17,12 @@
 #include <pthread.h>
 
 #define BUFSIZE 1024
-#define NICKNAME_SIZE 32
+#define NICKNAME_SIZE 20
 void* send_msg(void* arg);
 void* recv_msg(void* arg);
 void error_handling(const char* message);
-int process_command(char* msg);
+int process_command(int sock, char* msg);
+const char* get_emoji(const char* name);
 
 char msg[BUFSIZE];
 char nickname[NICKNAME_SIZE];
@@ -33,12 +34,10 @@ int main(int argc, char* argv[]) {
     pthread_t snd_thread, rcv_thread;
     void* thread_return;
 
-    if (argc != 4) {
-        printf("Usage: %s <IP> <PORT> <NICKNAME>\n", argv[0]);
+    if (argc != 3) {
+        printf("Usage: %s <IP> <PORT>\n", argv[0]);
         exit(1);
-    }
-    // 닉네임 저장
-    strcpy(nickname, argv[3]); 
+    } 
     // 1. 소켓 생성
     sock = socket(PF_INET, SOCK_STREAM, 0);
     if (sock == -1)
@@ -54,8 +53,10 @@ int main(int argc, char* argv[]) {
     if (connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) == -1)
         error_handling("connect() error");
 
-    // 연결되면 닉네임을 먼저 전송
-    write(sock, nickname, strlen(nickname) + 1);
+    printf("닉네임을 입력하세요: ");
+    fgets(nickname, NICKNAME_SIZE, stdin);
+    nickname[strcspn(nickname, "\n")] = 0; // 개행 제거
+    write(sock, nickname, strlen(nickname) + 1); // 서버에 닉네임 전송
     
     printf(">> 서버 연결 성공! 채팅을 시작하세요. (종료하려면 q 입력)\n");
 
@@ -76,16 +77,10 @@ void* send_msg(void* arg) {
     int sock = *((int*)arg);
     while (1) {
         fgets(msg, BUFSIZE, stdin);
-        
-        // 종료 조건 (q나 Q 입력 시 탈출)
-        if (!strcmp(msg, "q\n") || !strcmp(msg, "Q\n")) {
-            close(sock);
-            exit(0);
-        }
         // /로 시작하는 명령어처리
         //구현 기능1: /color r, /color g, /color b, /color --> 색상 변경 명령어 처리
         if(msg[0] == '/'){
-            process_command(msg);
+            process_command(sock, msg);
             continue; // 명령어 처리 후 메시지 전송을 건너뜀
         }
 
@@ -130,10 +125,30 @@ void error_handling(const char* message) {
     exit(1);
 }
 
-int process_command(char* msg) {
+const char* get_emoji(const char* name) {
+    if(strcmp(name, "happy") == 0) return "😊";
+    if(strcmp(name, "sad") == 0) return "😢";
+    if(strcmp(name, "angry") == 0) return "😡";
+    if(strcmp(name, "love") == 0) return "😍";
+    if(strcmp(name, "laugh") == 0) return "😂";
+    if(strcmp(name, "cry") == 0) return "😭";
+    if(strcmp(name, "surprise") == 0) return "😮";
+    if(strcmp(name, "thumbs") == 0) return "👍";
+    return NULL;
+}
+
+int process_command(int sock, char* msg) {
     // 명령어 처리 로직 구현
     // 예: /color r, /color g, /color b, /color - 등
-    if(strcmp(msg, "/color r\n") == 0) {
+    if(strcmp(msg, "/quit\n") == 0) {
+        write(sock, msg, strlen(msg));
+        close(sock);
+        exit(0);
+    } else if(strcmp(msg, "/who\n") == 0) {
+        write(sock, msg, strlen(msg));
+    } else if(strcmp(msg, "/emoticonlist\n") == 0) {
+        write(sock, msg, strlen(msg));
+    } else if(strcmp(msg, "/color r\n") == 0) {
         strcpy(color_code, "\033[31m");
         printf(">> 글자색을 빨간색으로 변경했습니다.\n");
     } else if(strcmp(msg, "/color g\n") == 0) {
@@ -147,12 +162,93 @@ int process_command(char* msg) {
         printf(">> 기본색으로 변경했습니다.\n");
     } else if(strncmp(msg, "/color ", 7) == 0) {
         printf(">> 알 수 없는 색상입니다. 사용 가능한 색상: r, g, b, -\n");
+    } else if(strncmp(msg, "/rename ", 8) == 0){
+        char new_name[NICKNAME_SIZE];
+
+        strncpy(new_name, msg + 8, NICKNAME_SIZE - 1);
+        new_name[NICKNAME_SIZE - 1] = '\0';
+        // fgets가 넣어준 '\n' 제거
+        new_name[strcspn(new_name, "\n")] = '\0';
+
+        if(strlen(new_name) == 0){
+            printf(">> 닉네임을 입력하세요.\n");
+            return 0;
+        }
+        strcpy(nickname, new_name);
+        write(sock, msg, strlen(msg));
+    } else if(strncmp(msg, "/whisper ", 9) == 0) {
+        char target[NICKNAME_SIZE];
+        char whisper_msg[BUFSIZE];
+        char send_msg[BUFSIZE + NICKNAME_SIZE + 20];
+
+        strncpy(target, msg + 9, NICKNAME_SIZE - 1);
+        target[NICKNAME_SIZE - 1] = '\0';
+        target[strcspn(target, " \n")] = '\0';
+
+        if(strlen(target) == 0) {
+            printf(">> 귓속말을 보낼 닉네임을 입력하세요.\n");
+            return 0;
+        }
+
+        printf("%s에게 할 귓속말을 입력하세요: ", target);
+        if(fgets(whisper_msg, BUFSIZE, stdin) == NULL) {
+            return 0;
+        }
+        whisper_msg[strcspn(whisper_msg, "\n")] = '\0';
+
+        if(strlen(whisper_msg) == 0) {
+            printf(">> 귓속말 내용이 비어있습니다.\n");
+            return 0;
+        }
+
+        snprintf(send_msg, sizeof(send_msg), "/whisper %s %s\n", target, whisper_msg);
+        write(sock, send_msg, strlen(send_msg));
+    } else if(strncmp(msg, "/emoji ", 7) == 0) {
+        char emoji_name[30];
+        const char* emoji;
+
+        strncpy(emoji_name, msg + 7, sizeof(emoji_name) - 1);
+        emoji_name[sizeof(emoji_name) - 1] = '\0';
+        emoji_name[strcspn(emoji_name, " \n")] = '\0';
+
+        emoji = get_emoji(emoji_name);
+        if(emoji == NULL) {
+            printf(">> 알 수 없는 이모지입니다. 사용 가능: happy, sad, angry, love, laugh, cry, surprise, thumbs\n");
+            return 0;
+        }
+
+        snprintf(msg, BUFSIZE, "%s\n", emoji);
+        printf("\033[1A");
+        printf("\033[2K");
+        printf("\r");
+        printf("%s나: %s\033[0m", color_code, msg);
+        write(sock, msg, strlen(msg));
+    } else if(strncmp(msg, "/emoticon ", 10) == 0) {
+        char emoticon_number[20];
+
+        strncpy(emoticon_number, msg + 10, sizeof(emoticon_number) - 1);
+        emoticon_number[sizeof(emoticon_number) - 1] = '\0';
+        emoticon_number[strcspn(emoticon_number, " \n")] = '\0';
+
+        if(strlen(emoticon_number) == 0) {
+            printf(">> 이모티콘 번호를 입력하세요.\n");
+            return 0;
+        }
+
+        write(sock, msg, strlen(msg));
     } else if(strcmp(msg, "/help\n") == 0) {
         printf(">> 사용 가능한 명령어:\n");
         printf("   /color r - 글자색을 빨간색으로 변경\n");
         printf("   /color g - 글자색을 초록색으로 변경\n");
         printf("   /color b - 글자색을 파란색으로 변경\n");
         printf("   /color - - 글자색을 기본색으로 변경\n");
+        printf("   /rename <닉네임> - 닉네임 변경\n");
+        printf("   /whisper <닉네임> - 지정한 사용자에게 귓속말 전송\n");
+        printf("   /emoji <이름> - 이모지 전송 (happy, sad, angry, love, laugh, cry, surprise, thumbs)\n");
+        printf("   /emoticon <번호> - 번호에 해당하는 아스키아트 이모티콘 전송\n");
+        printf("   /emoticonlist - 사용 가능한 이모티콘 번호와 이름 출력\n");
+        printf("   /who - 현재 접속자 목록 출력\n");
+        printf("   /quit - 채팅 종료\n");
         printf("   /help - 명령어 도움말 출력\n");
     }
     else {
